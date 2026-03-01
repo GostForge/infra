@@ -12,6 +12,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    environment:
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
     ports:
       - "${FRONTEND_PORT:-3001}:3001"
     healthcheck:
