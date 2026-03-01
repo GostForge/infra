@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+
+# Docker / compose local overrides
+docker-compose.override.yml
+
+# Local runtime files
+*.log
+.DS_Store

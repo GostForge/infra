@@ -1,0 +1,192 @@
+# ──────────────────────────────────────────────────
+# GostForge — Docker Compose (development)
+# Поднимает все сервисы для локальной разработки.
+# ──────────────────────────────────────────────────
+
+services:
+  # ── Frontend (static MVP) ──────────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: gostforge-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3001}:3001"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── PostgreSQL ──────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: gostforge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gostforge}
+      POSTGRES_USER: ${POSTGRES_USER:-gostforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gostforge_secret}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gostforge}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Redis ───────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: gostforge-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-gostforge_redis}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-gostforge_redis}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── MinIO (S3-compatible) ───────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: gostforge-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-gostforge}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-gostforge_minio}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── MinIO init (создание бакета) ────────────────
+  minio-init:
+    image: minio/mc:latest
+    container_name: gostforge-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set gf http://minio:9000 ${MINIO_ACCESS_KEY:-gostforge} ${MINIO_SECRET_KEY:-gostforge_minio};
+        mc mb --ignore-existing gf/${MINIO_BUCKET:-gostforge};
+        mc anonymous set download gf/${MINIO_BUCKET:-gostforge}/public || true;
+        echo 'MinIO bucket ready';
+      "
+    restart: "no"
+
+  # ── md2gost-service ─────────────────────────────
+  md2gost:
+    build:
+      context: ../md2gost
+      dockerfile: Dockerfile
+    container_name: gostforge-md2gost
+    restart: unless-stopped
+    environment:
+      MD2GOST_HOST: "0.0.0.0"
+      MD2GOST_PORT: "8081"
+      MD2GOST_WORKERS: "2"
+      MD2GOST_JOB_TTL_SECONDS: "900"
+    ports:
+      - "${MD2GOST_PORT:-8081}:8081"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ── Gotenberg (DOCX → PDF) ─────────────────────
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: gostforge-gotenberg
+    restart: unless-stopped
+    ports:
+      - "${GOTENBERG_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Backend (Spring Boot) ───────────────────────
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: gostforge-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-gostforge}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-gostforge}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-gostforge_secret}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-gostforge_redis}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-gostforge}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-gostforge_minio}
+      MINIO_BUCKET: ${MINIO_BUCKET:-gostforge}
+      MD2GOST_SERVICE_URL: http://md2gost:8081
+      GOTENBERG_SERVICE_URL: http://gotenberg:3000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001,http://localhost:5173}
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-gostforge_internal_dev}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Telegram Bot ────────────────────────────────
+  telegram:
+    #profiles: ["bots"]
+    build:
+      context: ../telegram
+      dockerfile: Dockerfile
+    container_name: gostforge-telegram
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      GOSTFORGE_BOT_TOKEN: ${GOSTFORGE_BOT_TOKEN:-}
+      GOSTFORGE_BACKEND_URL: http://backend:8080
+      GOSTFORGE_INTERNAL_API_KEY: ${INTERNAL_API_KEY:-gostforge_internal_dev}
+      GOSTFORGE_MINI_APP_URL: ${GOSTFORGE_MINI_APP_URL:-http://localhost:3001}
+      GOSTFORGE_MAX_FILE_SIZE_MB: ${GOSTFORGE_MAX_FILE_SIZE_MB:-20}
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
