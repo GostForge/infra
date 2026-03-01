@@ -6,9 +6,7 @@
 services:
   # ── Frontend (static MVP) ──────────────────────
   frontend:
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
+    image: ghcr.io/gostforge/frontend:latest
     container_name: gostforge-frontend
     restart: unless-stopped
     depends_on:
@@ -95,9 +93,7 @@ services:
 
   # ── md2gost-service ─────────────────────────────
   md2gost:
-    build:
-      context: ../md2gost
-      dockerfile: Dockerfile
+    image: ghcr.io/gostforge/md2gost:latest
     container_name: gostforge-md2gost
     restart: unless-stopped
     environment:
@@ -129,9 +125,7 @@ services:
 
   # ── Backend (Spring Boot) ───────────────────────
   backend:
-    build:
-      context: ../backend
-      dockerfile: Dockerfile
+    image: ghcr.io/gostforge/backend:latest
     container_name: gostforge-backend
     restart: unless-stopped
     depends_on:
@@ -171,9 +165,7 @@ services:
   # ── Telegram Bot ────────────────────────────────
   telegram:
     #profiles: ["bots"]
-    build:
-      context: ../telegram
-      dockerfile: Dockerfile
+    image: ghcr.io/gostforge/telegram:latest
     container_name: gostforge-telegram
     restart: unless-stopped
     depends_on:
