@@ -14,8 +14,6 @@ services:
         condition: service_healthy
     environment:
       VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
-    ports:
-      - "${FRONTEND_PORT:-3001}:3001"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3001/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
@@ -31,8 +29,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-gostforge}
       POSTGRES_USER: ${POSTGRES_USER:-gostforge}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gostforge_secret}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -47,8 +43,6 @@ services:
     container_name: gostforge-redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD:-gostforge_redis}
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -66,9 +60,6 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-gostforge}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-gostforge_minio}
-    ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -103,8 +94,6 @@ services:
       MD2GOST_PORT: "8081"
       MD2GOST_WORKERS: "2"
       MD2GOST_JOB_TTL_SECONDS: "900"
-    ports:
-      - "${MD2GOST_PORT:-8081}:8081"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')"]
       interval: 10s
@@ -117,8 +106,6 @@ services:
     image: gotenberg/gotenberg:8
     container_name: gostforge-gotenberg
     restart: unless-stopped
-    ports:
-      - "${GOTENBERG_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 10s
@@ -139,6 +126,9 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SERVICES_DOCX2MD_URL: http://docx2md:8082
+      SERVICES_GOTENBERG_URL: http://gotenberg:3000
+      SERVICES_MD2GOST_URL: http://md2gost:8081
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-gostforge}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-gostforge}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-gostforge_secret}
@@ -155,8 +145,6 @@ services:
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-gostforge_internal_dev}
-    ports:
-      - "${BACKEND_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
       interval: 10s
@@ -185,10 +173,8 @@ services:
     image: ghcr.io/gostforge/docx2md:latest
     container_name: gostforge-docx2md
     restart: unless-stopped
-    ports:
-      - "${DOCX2MD_PORT:-8082}:8082"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/docs"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -197,3 +183,8 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+
+networks:
+  default:
+    name: nginx-proxy-net
+    external: true
