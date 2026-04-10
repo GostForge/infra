@@ -180,17 +180,20 @@ services:
       GOSTFORGE_MINI_APP_URL: ${GOSTFORGE_MINI_APP_URL:-http://localhost:3001}
       GOSTFORGE_MAX_FILE_SIZE_MB: ${GOSTFORGE_MAX_FILE_SIZE_MB:-20}
 
+  # ── docx2md-service (DOCX → Markdown) ───────────
+  docx2md:
+    image: ghcr.io/gostforge/docx2md:latest
+    container_name: gostforge-docx2md
+    restart: unless-stopped
+    ports:
+      - "${DOCX2MD_PORT:-8082}:8082"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   postgres_data:
   redis_data:
   minio_data:
-  docx2md:
-    build:
-      context: ../docx2md
-      dockerfile: Dockerfile
-    container_name: gostforge-docx2md
-    restart: always
-    ports:
-      - "8082:8082"
-    networks:
-      - gostforge-network
