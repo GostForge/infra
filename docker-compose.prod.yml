@@ -47,6 +47,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-gostforge}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-gostforge}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-gostforge_secret}
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: ${SPRING_FLYWAY_VALIDATE_ON_MIGRATE:-true}
       SERVICES_DOCX2MD_URL: http://docx2md:8082
       SERVICES_MD2GOST_URL: http://md2gost:8081
       SERVICES_GOTENBERG_URL: http://gotenberg:3000
@@ -102,7 +103,7 @@ services:
 
   # ── docx2md-service (DOCX → Markdown) ───────────
   docx2md:
-    image: ghcr.io/gostforge/docx2md:latest
+    image: ${DOCX2MD_IMAGE:-ghcr.io/gostforge/docx2md:latest}
     container_name: gostforge-docx2md
     restart: unless-stopped
     healthcheck:
