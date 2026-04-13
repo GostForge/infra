@@ -1,0 +1,77 @@
+# ──────────────────────────────────────────────────
+# GostForge — Docker Compose (development)
+# Поднимает все сервисы для локальной разработки.
+# ──────────────────────────────────────────────────
+
+services:
+  # ── PostgreSQL ──────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: gostforge-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gostforge}
+      POSTGRES_USER: ${POSTGRES_USER:-gostforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gostforge_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gostforge}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── md2gost-service ─────────────────────────────
+  md2gost:
+    image: ghcr.io/gostforge/md2gost:latest
+    container_name: gostforge-md2gost
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      MD2GOST_HOST: "0.0.0.0"
+      MD2GOST_PORT: "8081"
+      MD2GOST_WORKERS: "2"
+      MD2GOST_JOB_TTL_SECONDS: "900"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ── Gotenberg (DOCX → PDF) ─────────────────────
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: gostforge-gotenberg
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── docx2md-service (DOCX → Markdown) ───────────
+  docx2md:
+    image: ghcr.io/gostforge/docx2md:latest
+    container_name: gostforge-docx2md
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: nginx-proxy-net
+    external: true

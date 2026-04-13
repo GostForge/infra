@@ -1,0 +1,137 @@
+# ──────────────────────────────────────────────────
+# GostForge — Docker Compose (production)
+# Поднимает прод-стек из GHCR-образов.
+# ──────────────────────────────────────────────────
+
+services:
+  # ── Frontend ────────────────────────────────────
+  frontend:
+    image: ghcr.io/gostforge/frontend:latest
+    container_name: gostforge-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── PostgreSQL ──────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: gostforge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gostforge}
+      POSTGRES_USER: ${POSTGRES_USER:-gostforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gostforge_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gostforge}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Backend ─────────────────────────────────────
+  backend:
+    image: ghcr.io/gostforge/backend:latest
+    container_name: gostforge-backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-gostforge}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-gostforge}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-gostforge_secret}
+      SERVICES_DOCX2MD_URL: http://docx2md:8082
+      SERVICES_MD2GOST_URL: http://md2gost:8081
+      SERVICES_GOTENBERG_URL: http://gotenberg:3000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001,http://localhost:5173}
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-gostforge_internal_dev}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      md2gost:
+        condition: service_started
+      gotenberg:
+        condition: service_started
+      docx2md:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - uploads_data:/app/uploads
+
+  # ── md2gost-service ─────────────────────────────
+  md2gost:
+    image: ghcr.io/gostforge/md2gost:latest
+    container_name: gostforge-md2gost
+    restart: unless-stopped
+    environment:
+      MD2GOST_HOST: "0.0.0.0"
+      MD2GOST_PORT: "8081"
+      MD2GOST_WORKERS: "2"
+      MD2GOST_JOB_TTL_SECONDS: "900"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ── Gotenberg (DOCX → PDF) ─────────────────────
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: gostforge-gotenberg
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── docx2md-service (DOCX → Markdown) ───────────
+  docx2md:
+    image: ghcr.io/gostforge/docx2md:latest
+    container_name: gostforge-docx2md
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Telegram Bot (optional) ─────────────────────
+  telegram:
+    image: ghcr.io/gostforge/telegram:latest
+    container_name: gostforge-telegram
+    restart: unless-stopped
+    profiles: ["bots"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      GOSTFORGE_BOT_TOKEN: ${GOSTFORGE_BOT_TOKEN:-}
+      GOSTFORGE_BACKEND_URL: http://backend:8080
+      GOSTFORGE_INTERNAL_API_KEY: ${INTERNAL_API_KEY:-gostforge_internal_dev}
+      GOSTFORGE_MINI_APP_URL: ${GOSTFORGE_MINI_APP_URL:-http://localhost:3001}
+      GOSTFORGE_MAX_FILE_SIZE_MB: ${GOSTFORGE_MAX_FILE_SIZE_MB:-20}
+
+volumes:
+  postgres_data:
+  uploads_data:
+
+networks:
+  default:
+    name: nginx-proxy-net
+    external: true

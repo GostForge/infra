@@ -8,3 +8,5 @@ docker-compose.override.yml
 # Local runtime files
 *.log
 .DS_Store
+*.pem
+PROJECT_MAP.md
